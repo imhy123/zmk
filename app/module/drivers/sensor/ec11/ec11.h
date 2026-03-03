@@ -16,11 +16,15 @@ struct ec11_config {
 
     const uint16_t steps;
     const uint8_t resolution;
+    const uint8_t pulses_per_detent;
+    const uint16_t debounce_us;
 };
 
 struct ec11_data {
     uint8_t ab_state;
     int8_t pulses;
+    int8_t accum;
+    uint32_t last_sample_cyc;
     int8_t ticks;
     int8_t delta;
 

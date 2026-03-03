@@ -25,3 +25,11 @@ properties:
     type: int
     description: Number of pulses in one full rotation
     required: false
+  pulses-per-detent:
+    type: int
+    description: Valid quadrature transitions per detent
+    required: false
+  debounce-us:
+    type: int
+    description: Ignore transitions within this time window (microseconds)
+    required: false

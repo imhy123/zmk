@@ -8,6 +8,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/clock.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/sensor.h>
@@ -34,6 +35,15 @@ static int ec11_sample_fetch(const struct device *dev, enum sensor_channel chan)
 
     __ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_ROTATION);
 
+    uint32_t now_cyc = k_cycle_get_32();
+    uint32_t dt_us = k_cyc_to_us_floor32(now_cyc - drv_data->last_sample_cyc);
+
+    if (drv_cfg->debounce_us > 0 && drv_data->last_sample_cyc != 0 &&
+        dt_us < drv_cfg->debounce_us) {
+        return 0; // ignore very fast changes (bounce)
+    }
+    drv_data->last_sample_cyc = now_cyc;
+
     val = ec11_get_ab_state(dev);
 
     LOG_DBG("prev: %d, new: %d", drv_data->ab_state, val);
@@ -58,7 +68,14 @@ static int ec11_sample_fetch(const struct device *dev, enum sensor_channel chan)
 
     LOG_DBG("Delta: %d", delta);
 
-    drv_data->pulses += delta;
+    drv_data->accum += delta;
+    if (drv_data->accum >= drv_cfg->pulses_per_detent) {
+        drv_data->pulses += 1;
+        drv_data->accum = 0;
+    } else if (drv_data->accum <= -(int8_t)drv_cfg->pulses_per_detent) {
+        drv_data->pulses -= 1;
+        drv_data->accum = 0;
+    }
     drv_data->ab_state = val;
 
     // TODO: Temporary code for backwards compatibility to support
@@ -143,6 +160,8 @@ int ec11_init(const struct device *dev) {
 #endif
 
     drv_data->ab_state = ec11_get_ab_state(dev);
+    drv_data->accum = 0;
+    drv_data->last_sample_cyc = 0;
 
     return 0;
 }
@@ -154,6 +173,8 @@ int ec11_init(const struct device *dev) {
         .b = GPIO_DT_SPEC_INST_GET(n, b_gpios),                                                    \
         .resolution = DT_INST_PROP_OR(n, resolution, 1),                                           \
         .steps = DT_INST_PROP_OR(n, steps, 0),                                                     \
+        .pulses_per_detent = DT_INST_PROP_OR(n, pulses_per_detent, 1),                             \
+        .debounce_us = DT_INST_PROP_OR(n, debounce_us, 0),                                         \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, ec11_init, NULL, &ec11_data_##n, &ec11_cfg_##n, POST_KERNEL,          \
                           CONFIG_SENSOR_INIT_PRIORITY, &ec11_driver_api);
