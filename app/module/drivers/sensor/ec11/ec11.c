@@ -19,7 +19,8 @@
 
 #define FULL_ROTATION 360
 
-LOG_MODULE_REGISTER(EC11, CONFIG_SENSOR_LOG_LEVEL);
+// LOG_MODULE_REGISTER(EC11, CONFIG_SENSOR_LOG_LEVEL);
+LOG_MODULE_REGISTER(EC11, LOG_LEVEL_DBG);
 
 static int ec11_get_ab_state(const struct device *dev) {
     const struct ec11_config *drv_cfg = dev->config;
@@ -66,7 +67,7 @@ static int ec11_sample_fetch(const struct device *dev, enum sensor_channel chan)
         break;
     }
 
-    LOG_DBG("Delta: %d", delta);
+    LOG_DBG("Delta: %d, accum: %d, pulses: %d", delta, drv_data->accum, drv_data->pulses);
 
     drv_data->accum += delta;
     if (drv_data->accum >= drv_cfg->pulses_per_detent) {
