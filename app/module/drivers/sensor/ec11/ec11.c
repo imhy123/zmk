@@ -182,7 +182,7 @@ int ec11_init(const struct device *dev) {
         .b = GPIO_DT_SPEC_INST_GET(n, b_gpios),                                                    \
         .resolution = DT_INST_PROP_OR(n, resolution, 1),                                           \
         .steps = DT_INST_PROP_OR(n, steps, 0),                                                     \
-        .pulses_per_detent = DT_INST_PROP_OR(n, pulses_per_detent, 1),                             \
+        .pulses_per_detent = DT_INST_PROP_OR(n, pulses_per_detent, 2),                             \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, ec11_init, NULL, &ec11_data_##n, &ec11_cfg_##n, POST_KERNEL,          \
                           CONFIG_SENSOR_INIT_PRIORITY, &ec11_driver_api);

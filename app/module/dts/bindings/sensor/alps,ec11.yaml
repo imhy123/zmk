@@ -30,5 +30,5 @@ properties:
     description: |
       Number of valid quadrature transitions that make up one physical detent.
       Counted once per detent; contact bounce (alternating +1/-1 transitions)
-      cancels out before reaching this threshold. Defaults to 1.
+      cancels out before reaching this threshold. Defaults to 2.
     required: false
