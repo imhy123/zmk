@@ -27,9 +27,8 @@ properties:
     required: false
   pulses-per-detent:
     type: int
-    description: Valid quadrature transitions per detent
-    required: false
-  debounce-us:
-    type: int
-    description: Ignore transitions within this time window (microseconds)
+    description: |
+      Number of valid quadrature transitions that make up one physical detent.
+      Counted once per detent; contact bounce (alternating +1/-1 transitions)
+      cancels out before reaching this threshold. Defaults to 1.
     required: false

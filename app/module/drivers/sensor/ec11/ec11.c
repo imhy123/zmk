@@ -8,7 +8,6 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/sys_clock.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/sensor.h>
@@ -19,8 +18,7 @@
 
 #define FULL_ROTATION 360
 
-// LOG_MODULE_REGISTER(EC11, CONFIG_SENSOR_LOG_LEVEL);
-LOG_MODULE_REGISTER(EC11, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(EC11, CONFIG_SENSOR_LOG_LEVEL);
 
 static int ec11_get_ab_state(const struct device *dev) {
     const struct ec11_config *drv_cfg = dev->config;
@@ -28,26 +26,12 @@ static int ec11_get_ab_state(const struct device *dev) {
     return (gpio_pin_get_dt(&drv_cfg->a) << 1) | gpio_pin_get_dt(&drv_cfg->b);
 }
 
-static int ec11_sample_fetch(const struct device *dev, enum sensor_channel chan) {
+void ec11_handle_edge(const struct device *dev) {
     struct ec11_data *drv_data = dev->data;
     const struct ec11_config *drv_cfg = dev->config;
-    uint8_t val;
+
+    uint8_t val = ec11_get_ab_state(dev);
     int8_t delta;
-
-    __ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_ROTATION);
-
-    uint32_t now_cyc = k_cycle_get_32();
-    uint32_t dt_us = k_cyc_to_us_floor32(now_cyc - drv_data->last_sample_cyc);
-
-    if (drv_cfg->debounce_us > 0 && drv_data->last_sample_cyc != 0 &&
-        dt_us < drv_cfg->debounce_us) {
-        return 0; // ignore very fast changes (bounce)
-    }
-    drv_data->last_sample_cyc = now_cyc;
-
-    val = ec11_get_ab_state(dev);
-
-    LOG_DBG("prev: %d, new: %d", drv_data->ab_state, val);
 
     switch (val | (drv_data->ab_state << 2)) {
     case 0b0010:
@@ -63,30 +47,49 @@ static int ec11_sample_fetch(const struct device *dev, enum sensor_channel chan)
         delta = 1;
         break;
     default:
-        delta = 0;
-        break;
+        /* No change, or a double jump we cannot resolve (should not happen now
+         * that interrupts are never disabled). Resync state and bail. */
+        drv_data->ab_state = val;
+        return;
     }
 
-    LOG_DBG("Delta: %d, accum: %d, pulses: %d", delta, drv_data->accum, drv_data->pulses);
+    drv_data->ab_state = val;
 
+    /* A detent is `pulses_per_detent` transitions in one direction. Bounce at
+     * the switch point alternates +1/-1, so accum oscillates and never reaches
+     * the threshold -- the bounce is filtered without any time-based debounce. */
     drv_data->accum += delta;
-    if (drv_data->accum >= drv_cfg->pulses_per_detent) {
+
+    bool detent = false;
+    if (drv_data->accum >= (int8_t)drv_cfg->pulses_per_detent) {
         drv_data->pulses += 1;
         drv_data->accum = 0;
+        detent = true;
     } else if (drv_data->accum <= -(int8_t)drv_cfg->pulses_per_detent) {
         drv_data->pulses -= 1;
         drv_data->accum = 0;
+        detent = true;
     }
-    drv_data->ab_state = val;
 
-    // TODO: Temporary code for backwards compatibility to support
-    // the sensor channel rotation reporting *ticks* instead of delta of degrees.
-    // REMOVE ME
-    if (drv_cfg->steps == 0) {
-        drv_data->ticks = drv_data->pulses / drv_cfg->resolution;
-        drv_data->delta = delta;
-        drv_data->pulses %= drv_cfg->resolution;
+#ifdef CONFIG_EC11_TRIGGER
+    if (detent && drv_data->handler) {
+        /* In ISR context, zmk_sensors_trigger_handler just sets a pending bit
+         * and submits its own work item, so bursts of detents coalesce. */
+        drv_data->handler(dev, drv_data->trigger);
     }
+#else
+    ARG_UNUSED(detent);
+#endif
+}
+
+static int ec11_sample_fetch(const struct device *dev, enum sensor_channel chan) {
+    __ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL || chan == SENSOR_CHAN_ROTATION);
+
+#ifndef CONFIG_EC11_TRIGGER
+    /* No interrupts: decode on demand. With triggers enabled the decoding is
+     * already done in the ISR and this is a no-op. */
+    ec11_handle_edge(dev);
+#endif
 
     return 0;
 }
@@ -95,15 +98,20 @@ static int ec11_channel_get(const struct device *dev, enum sensor_channel chan,
                             struct sensor_value *val) {
     struct ec11_data *drv_data = dev->data;
     const struct ec11_config *drv_cfg = dev->config;
-    int32_t pulses = drv_data->pulses;
 
     if (chan != SENSOR_CHAN_ROTATION) {
         return -ENOTSUP;
     }
 
+    /* pulses is also written from the ISR; read-and-clear atomically. */
+    unsigned int key = irq_lock();
+    int32_t pulses = drv_data->pulses;
     drv_data->pulses = 0;
+    irq_unlock(key);
 
     if (drv_cfg->steps > 0) {
+        /* pulses counts detents; steps is detents-per-rotation, so this yields
+         * degrees consumed by behavior_sensor_rotate (360 / triggers_per_rotation). */
         val->val1 = (pulses * FULL_ROTATION) / drv_cfg->steps;
         val->val2 = (pulses * FULL_ROTATION) % drv_cfg->steps;
         if (val->val2 != 0) {
@@ -111,8 +119,9 @@ static int ec11_channel_get(const struct device *dev, enum sensor_channel chan,
             val->val2 /= drv_cfg->steps;
         }
     } else {
-        val->val1 = drv_data->ticks;
-        val->val2 = drv_data->delta;
+        /* Legacy: report detents directly in val2 (val1 == 0 path). */
+        val->val1 = 0;
+        val->val2 = pulses;
     }
 
     return 0;
@@ -162,7 +171,6 @@ int ec11_init(const struct device *dev) {
 
     drv_data->ab_state = ec11_get_ab_state(dev);
     drv_data->accum = 0;
-    drv_data->last_sample_cyc = 0;
 
     return 0;
 }
@@ -175,7 +183,6 @@ int ec11_init(const struct device *dev) {
         .resolution = DT_INST_PROP_OR(n, resolution, 1),                                           \
         .steps = DT_INST_PROP_OR(n, steps, 0),                                                     \
         .pulses_per_detent = DT_INST_PROP_OR(n, pulses_per_detent, 1),                             \
-        .debounce_us = DT_INST_PROP_OR(n, debounce_us, 0),                                         \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, ec11_init, NULL, &ec11_data_##n, &ec11_cfg_##n, POST_KERNEL,          \
                           CONFIG_SENSOR_INIT_PRIORITY, &ec11_driver_api);

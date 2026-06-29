@@ -17,16 +17,15 @@ struct ec11_config {
     const uint16_t steps;
     const uint8_t resolution;
     const uint8_t pulses_per_detent;
-    const uint16_t debounce_us;
 };
 
 struct ec11_data {
     uint8_t ab_state;
+    /* Completed detents pending a channel_get(); written from the ISR. */
     int8_t pulses;
+    /* Valid quadrature transitions accumulated toward the next detent.
+     * Contact bounce produces +1/-1 pairs that cancel here. */
     int8_t accum;
-    uint32_t last_sample_cyc;
-    int8_t ticks;
-    int8_t delta;
 
 #ifdef CONFIG_EC11_TRIGGER
     struct gpio_callback a_gpio_cb;
@@ -35,17 +34,13 @@ struct ec11_data {
 
     sensor_trigger_handler_t handler;
     const struct sensor_trigger *trigger;
-
-#if defined(CONFIG_EC11_TRIGGER_OWN_THREAD)
-    K_THREAD_STACK_MEMBER(thread_stack, CONFIG_EC11_THREAD_STACK_SIZE);
-    struct k_sem gpio_sem;
-    struct k_thread thread;
-#elif defined(CONFIG_EC11_TRIGGER_GLOBAL_THREAD)
-    struct k_work work;
-#endif
-
 #endif /* CONFIG_EC11_TRIGGER */
 };
+
+/* Decode one GPIO edge and accumulate detents. Runs in ISR context (or from
+ * sample_fetch when triggers are disabled). Never disables interrupts, so the
+ * fast bounce edges are all seen and cancel out in accum. */
+void ec11_handle_edge(const struct device *dev);
 
 #ifdef CONFIG_EC11_TRIGGER
 
