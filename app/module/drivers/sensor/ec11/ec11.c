@@ -152,10 +152,10 @@ void ec11_handle_edge(const struct device *dev) {
             detent = true;
             evt = EC11_EVT_EMIT;
         } else if (drv_cfg->filter_reverse_as_codir &&
-                   k_cyc_to_us_floor32(now - drv_data->t_last_emit) >= drv_cfg->filter_rcodir_guard_us) {
+                   k_cyc_to_us_floor32(now - drv_data->t_last_emit) >= drv_cfg->filter_codir_guard_us) {
             /* A glitch this long after the last detent is a genuinely missed
              * same-direction detent -- recover it in the committed direction so
-             * the count does not lag. A glitch sooner than filter_rcodir_guard_us is just
+             * the count does not lag. A glitch sooner than filter_codir_guard_us is just
              * the just-emitted detent's settling chatter; dropping it keeps one
              * physical detent from emitting twice. */
             drv_data->pulses += drv_data->dir;
@@ -290,7 +290,7 @@ int ec11_init(const struct device *dev) {
         .pulses_per_detent = DT_INST_PROP_OR(n, pulses_per_detent, 2),                             \
         .filter_reverse_guard_us = DT_INST_PROP_OR(n, filter_reverse_guard_us, 800),                             \
         .filter_reverse_as_codir = DT_INST_PROP_OR(n, filter_reverse_as_codir, 0),                 \
-        .filter_rcodir_guard_us = DT_INST_PROP_OR(n, filter_rcodir_guard_us, 3000),                                \
+        .filter_codir_guard_us = DT_INST_PROP_OR(n, filter_codir_guard_us, 3000),                                \
         .filter_jump_compensate = DT_INST_PROP_OR(n, filter_jump_compensate, 1),                   \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, ec11_init, NULL, &ec11_data_##n, &ec11_cfg_##n, POST_KERNEL,          \

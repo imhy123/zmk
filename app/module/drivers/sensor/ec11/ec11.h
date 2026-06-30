@@ -30,7 +30,7 @@ struct ec11_config {
      * the glitch is the just-emitted detent's settling chatter, so it is dropped
      * to keep one physical detent from emitting twice. 0 disables this gate.
      * Defaults to 3000. */
-    const uint32_t filter_rcodir_guard_us;
+    const uint32_t filter_codir_guard_us;
     /* When two edges of a detent collapse into one read (a 2-step jump, both A
      * and B differ), the direction is ambiguous from the states alone. If
      * nonzero, compensate the otherwise-lost detent by resolving the jump as two

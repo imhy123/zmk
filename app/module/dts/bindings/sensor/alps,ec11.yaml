@@ -48,7 +48,7 @@ properties:
       detent in the committed direction (the glitch is misdecoded same-direction
       motion), so the count does not lag. 0: drop the glitch entirely. Defaults to 0.
     required: false
-  filter-rcodir-guard-us:
+  filter-codir-guard-us:
     type: int
     description: |
       Minimum time since the last emitted detent before a same-direction (codir)
