@@ -31,6 +31,11 @@ struct ec11_config {
      * to keep one physical detent from emitting twice. 0 disables this gate.
      * Defaults to 3000. */
     const uint32_t codir_guard_us;
+    /* When two edges of a detent collapse into one read (a 2-step jump, both A
+     * and B differ), the direction is ambiguous from the states alone. If
+     * nonzero, compensate the otherwise-lost detent by resolving the jump as two
+     * transitions in the committed direction. If 0, drop it. Defaults to 1. */
+    const uint8_t double_jump_compensate;
 };
 
 struct ec11_data {

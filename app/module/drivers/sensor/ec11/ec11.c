@@ -103,14 +103,22 @@ void ec11_handle_edge(const struct device *dev) {
         delta = 1;
         break;
     default:
-        /* No change, or a 2-step jump we cannot resolve (a missed edge). Resync
-         * state and bail; trace the jump so edge loss is visible. */
-        drv_data->ab_state = val;
-        if (val != prev) {
+        if (val == prev) {
+            return; /* redundant read, no change */
+        }
+        /* 2-step jump: both A and B differ, so two edges of one detent collapsed
+         * into a single read (this encoder does it at every other detent). The
+         * direction is ambiguous from the states alone, but it is two
+         * transitions in whatever way we were already turning -- compensate the
+         * otherwise-lost detent using the committed direction. */
+        if (!drv_cfg->double_jump_compensate || drv_data->dir == 0) {
+            drv_data->ab_state = val;
             EC11_TRACE(k_cyc_to_us_floor32(now), prev, val, 0, drv_data->accum, drv_data->dir,
                        drv_data->pulses, EC11_EVT_DROP);
+            return;
         }
-        return;
+        delta = 2 * drv_data->dir;
+        break;
     }
 
     drv_data->ab_state = val;
@@ -124,7 +132,7 @@ void ec11_handle_edge(const struct device *dev) {
     /* Remember when we last moved in the committed direction. A reverse detent
      * that completes within reverse_guard_us of this is a glitch (a real
      * reversal always has a velocity-through-zero time gap). */
-    if (drv_data->dir == 0 || delta == drv_data->dir) {
+    if (drv_data->dir == 0 || (delta < 0) == (drv_data->dir < 0)) {
         drv_data->t_codir = now;
     }
 
@@ -283,6 +291,7 @@ int ec11_init(const struct device *dev) {
         .reverse_guard_us = DT_INST_PROP_OR(n, reverse_guard_us, 800),                             \
         .reverse_glitch_as_codir = DT_INST_PROP_OR(n, reverse_glitch_as_codir, 1),                 \
         .codir_guard_us = DT_INST_PROP_OR(n, codir_guard_us, 3000),                                \
+        .double_jump_compensate = DT_INST_PROP_OR(n, double_jump_compensate, 1),                   \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, ec11_init, NULL, &ec11_data_##n, &ec11_cfg_##n, POST_KERNEL,          \
                           CONFIG_SENSOR_INIT_PRIORITY, &ec11_driver_api);

@@ -57,3 +57,11 @@ properties:
       a glitch later than this is a genuinely missed detent and is recovered.
       0 disables the gate. Defaults to 3000.
     required: false
+  double-jump-compensate:
+    type: int
+    description: |
+      When both A and B change between two reads (a 2-step jump), two edges of one
+      detent collapsed into a single read and the direction is ambiguous. Nonzero:
+      compensate the otherwise-lost detent by resolving the jump as two transitions
+      in the committed direction. 0: drop it. Defaults to 1.
+    required: false
