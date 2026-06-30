@@ -17,6 +17,14 @@ struct ec11_config {
     const uint16_t steps;
     const uint8_t resolution;
     const uint8_t pulses_per_detent;
+    /* If >0, a reverse detent that completes within this many microseconds of
+     * the last same-as-committed-direction transition is treated as a glitch.
+     * 0 disables the filter. Defaults to 800. */
+    const uint32_t reverse_guard_us;
+    /* When a glitch is caught by reverse_guard_us: if nonzero, emit a detent in
+     * the committed direction (the glitch was misdecoded same-direction motion);
+     * if 0, drop it entirely. Defaults to 1 (emit same-direction). */
+    const uint8_t reverse_glitch_as_codir;
 };
 
 struct ec11_data {
@@ -26,6 +34,10 @@ struct ec11_data {
     /* Valid quadrature transitions accumulated toward the next detent.
      * Contact bounce produces +1/-1 pairs that cancel here. */
     int8_t accum;
+    /* Committed rotation direction of the last emitted detent (+1/-1/0). */
+    int8_t dir;
+    /* Cycle timestamp of the last transition that went in `dir`. */
+    uint32_t t_codir;
 
 #ifdef CONFIG_EC11_TRIGGER
     struct gpio_callback a_gpio_cb;

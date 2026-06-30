@@ -9,6 +9,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/sys_clock.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/sys/__assert.h>
@@ -57,18 +58,38 @@ void ec11_handle_edge(const struct device *dev) {
 
     /* A detent is `pulses_per_detent` transitions in one direction. Bounce at
      * the switch point alternates +1/-1, so accum oscillates and never reaches
-     * the threshold -- the bounce is filtered without any time-based debounce. */
+     * the threshold -- the bounce is filtered without dropping any edge. */
     drv_data->accum += delta;
 
+    /* Remember when we last moved in the committed direction. A reverse detent
+     * that completes within reverse_guard_us of this is a glitch (a real
+     * reversal always has a velocity-through-zero time gap). */
+    uint32_t now = k_cycle_get_32();
+    if (drv_data->dir == 0 || delta == drv_data->dir) {
+        drv_data->t_codir = now;
+    }
+
+    const int8_t det = (int8_t)drv_cfg->pulses_per_detent;
     bool detent = false;
-    if (drv_data->accum >= (int8_t)drv_cfg->pulses_per_detent) {
-        drv_data->pulses += 1;
+
+    if (drv_data->accum >= det || drv_data->accum <= -det) {
+        int8_t want = (drv_data->accum >= det) ? 1 : -1; /* direction this detent wants */
+        bool glitch = drv_data->dir != 0 && want != drv_data->dir && drv_cfg->reverse_guard_us > 0 &&
+                      k_cyc_to_us_floor32(now - drv_data->t_codir) < drv_cfg->reverse_guard_us;
         drv_data->accum = 0;
-        detent = true;
-    } else if (drv_data->accum <= -(int8_t)drv_cfg->pulses_per_detent) {
-        drv_data->pulses -= 1;
-        drv_data->accum = 0;
-        detent = true;
+
+        if (!glitch) {
+            drv_data->pulses += want;
+            drv_data->dir = want;
+            detent = true;
+        } else if (drv_cfg->reverse_glitch_as_codir) {
+            /* The reverse glitch is really continued same-direction motion that
+             * got misdecoded -- emit it in the committed direction instead of
+             * dropping it (keeps the count from lagging). */
+            drv_data->pulses += drv_data->dir;
+            detent = true;
+        }
+        /* else: glitch fully suppressed */
     }
 
 #ifdef CONFIG_EC11_TRIGGER
@@ -171,6 +192,8 @@ int ec11_init(const struct device *dev) {
 
     drv_data->ab_state = ec11_get_ab_state(dev);
     drv_data->accum = 0;
+    drv_data->dir = 0;
+    drv_data->t_codir = 0;
 
     return 0;
 }
@@ -183,6 +206,8 @@ int ec11_init(const struct device *dev) {
         .resolution = DT_INST_PROP_OR(n, resolution, 1),                                           \
         .steps = DT_INST_PROP_OR(n, steps, 0),                                                     \
         .pulses_per_detent = DT_INST_PROP_OR(n, pulses_per_detent, 2),                             \
+        .reverse_guard_us = DT_INST_PROP_OR(n, reverse_guard_us, 800),                             \
+        .reverse_glitch_as_codir = DT_INST_PROP_OR(n, reverse_glitch_as_codir, 1),                 \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, ec11_init, NULL, &ec11_data_##n, &ec11_cfg_##n, POST_KERNEL,          \
                           CONFIG_SENSOR_INIT_PRIORITY, &ec11_driver_api);

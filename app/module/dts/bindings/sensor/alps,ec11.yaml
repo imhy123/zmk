@@ -32,3 +32,19 @@ properties:
       Counted once per detent; contact bounce (alternating +1/-1 transitions)
       cancels out before reaching this threshold. Defaults to 2.
     required: false
+  reverse-guard-us:
+    type: int
+    description: |
+      Directional glitch filter. If >0, a detent in the opposite direction to
+      the last emitted one is treated as a glitch when it completes within this
+      many microseconds of the last same-direction transition (a real reversal
+      has a larger velocity-through-zero gap). No edges are dropped. 0 disables.
+      Defaults to 800.
+    required: false
+  reverse-glitch-as-codir:
+    type: int
+    description: |
+      How a glitch caught by reverse-guard-us is handled. Nonzero: emit a detent
+      in the committed direction (the glitch is misdecoded same-direction motion),
+      so the count does not lag. 0: drop the glitch entirely. Defaults to 1.
+    required: false
