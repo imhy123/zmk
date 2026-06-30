@@ -48,3 +48,12 @@ properties:
       in the committed direction (the glitch is misdecoded same-direction motion),
       so the count does not lag. 0: drop the glitch entirely. Defaults to 1.
     required: false
+  codir-guard-us:
+    type: int
+    description: |
+      Minimum time since the last emitted detent before a same-direction (codir)
+      recovery may fire. A glitch sooner than this is the just-emitted detent's
+      settling chatter and is dropped, so one physical detent cannot emit twice;
+      a glitch later than this is a genuinely missed detent and is recovered.
+      0 disables the gate. Defaults to 3000.
+    required: false

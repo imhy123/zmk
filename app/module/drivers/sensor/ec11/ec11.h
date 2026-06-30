@@ -25,6 +25,12 @@ struct ec11_config {
      * the committed direction (the glitch was misdecoded same-direction motion);
      * if 0, drop it entirely. Defaults to 1 (emit same-direction). */
     const uint8_t reverse_glitch_as_codir;
+    /* A same-direction (codir) recovery is only emitted if at least this many
+     * microseconds have passed since the last emitted detent. Sooner than that
+     * the glitch is the just-emitted detent's settling chatter, so it is dropped
+     * to keep one physical detent from emitting twice. 0 disables this gate.
+     * Defaults to 3000. */
+    const uint32_t codir_guard_us;
 };
 
 struct ec11_data {
@@ -38,6 +44,8 @@ struct ec11_data {
     int8_t dir;
     /* Cycle timestamp of the last transition that went in `dir`. */
     uint32_t t_codir;
+    /* Cycle timestamp of the last emitted detent. */
+    uint32_t t_last_emit;
 
 #ifdef CONFIG_EC11_TRIGGER
     struct gpio_callback a_gpio_cb;

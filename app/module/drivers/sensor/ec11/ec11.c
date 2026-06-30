@@ -82,14 +82,21 @@ void ec11_handle_edge(const struct device *dev) {
             drv_data->pulses += want;
             drv_data->dir = want;
             detent = true;
-        } else if (drv_cfg->reverse_glitch_as_codir) {
-            /* The reverse glitch is really continued same-direction motion that
-             * got misdecoded -- emit it in the committed direction instead of
-             * dropping it (keeps the count from lagging). */
+        } else if (drv_cfg->reverse_glitch_as_codir &&
+                   k_cyc_to_us_floor32(now - drv_data->t_last_emit) >= drv_cfg->codir_guard_us) {
+            /* A glitch this long after the last detent is a genuinely missed
+             * same-direction detent -- recover it in the committed direction so
+             * the count does not lag. A glitch sooner than codir_guard_us is just
+             * the just-emitted detent's settling chatter; dropping it keeps one
+             * physical detent from emitting twice. */
             drv_data->pulses += drv_data->dir;
             detent = true;
         }
-        /* else: glitch fully suppressed */
+        /* else: glitch dropped (chatter echo, or codir disabled) */
+
+        if (detent) {
+            drv_data->t_last_emit = now;
+        }
     }
 
 #ifdef CONFIG_EC11_TRIGGER
@@ -194,6 +201,7 @@ int ec11_init(const struct device *dev) {
     drv_data->accum = 0;
     drv_data->dir = 0;
     drv_data->t_codir = 0;
+    drv_data->t_last_emit = 0;
 
     return 0;
 }
@@ -208,6 +216,7 @@ int ec11_init(const struct device *dev) {
         .pulses_per_detent = DT_INST_PROP_OR(n, pulses_per_detent, 2),                             \
         .reverse_guard_us = DT_INST_PROP_OR(n, reverse_guard_us, 800),                             \
         .reverse_glitch_as_codir = DT_INST_PROP_OR(n, reverse_glitch_as_codir, 1),                 \
+        .codir_guard_us = DT_INST_PROP_OR(n, codir_guard_us, 3000),                                \
     };                                                                                             \
     DEVICE_DT_INST_DEFINE(n, ec11_init, NULL, &ec11_data_##n, &ec11_cfg_##n, POST_KERNEL,          \
                           CONFIG_SENSOR_INIT_PRIORITY, &ec11_driver_api);
