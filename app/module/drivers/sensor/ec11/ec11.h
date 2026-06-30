@@ -20,22 +20,22 @@ struct ec11_config {
     /* If >0, a reverse detent that completes within this many microseconds of
      * the last same-as-committed-direction transition is treated as a glitch.
      * 0 disables the filter. Defaults to 800. */
-    const uint32_t reverse_guard_us;
-    /* When a glitch is caught by reverse_guard_us: if nonzero, emit a detent in
-     * the committed direction (the glitch was misdecoded same-direction motion);
-     * if 0, drop it entirely. Defaults to 1 (emit same-direction). */
-    const uint8_t reverse_glitch_as_codir;
+    const uint32_t filter_reverse_guard_us;
+    /* When a glitch is caught by filter_reverse_guard_us: if nonzero, emit a
+     * detent in the committed direction (the glitch was misdecoded
+     * same-direction motion); if 0, drop it entirely. Defaults to 0. */
+    const uint8_t filter_reverse_as_codir;
     /* A same-direction (codir) recovery is only emitted if at least this many
      * microseconds have passed since the last emitted detent. Sooner than that
      * the glitch is the just-emitted detent's settling chatter, so it is dropped
      * to keep one physical detent from emitting twice. 0 disables this gate.
      * Defaults to 3000. */
-    const uint32_t codir_guard_us;
+    const uint32_t filter_rcodir_guard_us;
     /* When two edges of a detent collapse into one read (a 2-step jump, both A
      * and B differ), the direction is ambiguous from the states alone. If
      * nonzero, compensate the otherwise-lost detent by resolving the jump as two
      * transitions in the committed direction. If 0, drop it. Defaults to 1. */
-    const uint8_t double_jump_compensate;
+    const uint8_t filter_jump_compensate;
 };
 
 struct ec11_data {

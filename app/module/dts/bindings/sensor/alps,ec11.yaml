@@ -32,7 +32,7 @@ properties:
       Counted once per detent; contact bounce (alternating +1/-1 transitions)
       cancels out before reaching this threshold. Defaults to 2.
     required: false
-  reverse-guard-us:
+  filter-reverse-guard-us:
     type: int
     description: |
       Directional glitch filter. If >0, a detent in the opposite direction to
@@ -41,14 +41,14 @@ properties:
       has a larger velocity-through-zero gap). No edges are dropped. 0 disables.
       Defaults to 800.
     required: false
-  reverse-glitch-as-codir:
+  filter-reverse-as-codir:
     type: int
     description: |
-      How a glitch caught by reverse-guard-us is handled. Nonzero: emit a detent
-      in the committed direction (the glitch is misdecoded same-direction motion),
-      so the count does not lag. 0: drop the glitch entirely. Defaults to 1.
+      How a glitch caught by filter-reverse-guard-us is handled. Nonzero: emit a
+      detent in the committed direction (the glitch is misdecoded same-direction
+      motion), so the count does not lag. 0: drop the glitch entirely. Defaults to 0.
     required: false
-  codir-guard-us:
+  filter-rcodir-guard-us:
     type: int
     description: |
       Minimum time since the last emitted detent before a same-direction (codir)
@@ -57,7 +57,7 @@ properties:
       a glitch later than this is a genuinely missed detent and is recovered.
       0 disables the gate. Defaults to 3000.
     required: false
-  double-jump-compensate:
+  filter-jump-compensate:
     type: int
     description: |
       When both A and B change between two reads (a 2-step jump), two edges of one
