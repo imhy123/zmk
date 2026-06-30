@@ -49,4 +49,12 @@ config EC11_THREAD_STACK_SIZE
     help
       Stack size of thread used by the driver to handle interrupts.
 
+config EC11_DEBUG_TRACE
+    bool "Trace decoded EC11 transitions over the log (debug only)"
+    help
+      Push every decoded transition (and the emit/glitch decision) into a queue
+      from the ISR and log it from a low-priority thread. The ISR never logs, so
+      this is safe to leave on while debugging. Use it to see, per detent, how
+      many transitions arrive and why a detent is or is not emitted.
+
 endif # EC11

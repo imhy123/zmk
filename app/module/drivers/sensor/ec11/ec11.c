@@ -21,6 +21,59 @@
 
 LOG_MODULE_REGISTER(EC11, CONFIG_SENSOR_LOG_LEVEL);
 
+enum { EC11_EVT_STEP = 0, EC11_EVT_EMIT, EC11_EVT_CODIR, EC11_EVT_DROP };
+
+#if IS_ENABLED(CONFIG_EC11_DEBUG_TRACE)
+struct ec11_trace_rec {
+    uint32_t t_us;
+    uint8_t prev;
+    uint8_t curr;
+    uint8_t evt;
+    int8_t step;
+    int8_t accum;
+    int8_t dir;
+    int8_t pulses;
+};
+
+K_MSGQ_DEFINE(ec11_trace_q, sizeof(struct ec11_trace_rec), 256, 4);
+
+static void ec11_trace_push(uint32_t t_us, uint8_t prev, uint8_t curr, int8_t step, int8_t accum,
+                            int8_t dir, int8_t pulses, uint8_t evt) {
+    struct ec11_trace_rec r = {.t_us = t_us,
+                               .prev = prev,
+                               .curr = curr,
+                               .evt = evt,
+                               .step = step,
+                               .accum = accum,
+                               .dir = dir,
+                               .pulses = pulses};
+    /* ISR-safe, never blocks: drop the record if the queue is full. */
+    k_msgq_put(&ec11_trace_q, &r, K_NO_WAIT);
+}
+
+static void ec11_trace_thread(void *a, void *b, void *c) {
+    static const char *const names[] = {"step", "EMIT", "CODIR", "drop"};
+    struct ec11_trace_rec r;
+
+    ARG_UNUSED(a);
+    ARG_UNUSED(b);
+    ARG_UNUSED(c);
+
+    while (1) {
+        k_msgq_get(&ec11_trace_q, &r, K_FOREVER);
+        LOG_INF("t=%u prev=%u curr=%u step=%d accum=%d dir=%d pulses=%d %s", r.t_us, r.prev, r.curr,
+                r.step, r.accum, r.dir, r.pulses, names[r.evt]);
+    }
+}
+
+K_THREAD_DEFINE(ec11_trace_tid, 1024, ec11_trace_thread, NULL, NULL, NULL,
+                K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+
+#define EC11_TRACE(...) ec11_trace_push(__VA_ARGS__)
+#else
+#define EC11_TRACE(...)
+#endif /* CONFIG_EC11_DEBUG_TRACE */
+
 static int ec11_get_ab_state(const struct device *dev) {
     const struct ec11_config *drv_cfg = dev->config;
 
@@ -31,10 +84,12 @@ void ec11_handle_edge(const struct device *dev) {
     struct ec11_data *drv_data = dev->data;
     const struct ec11_config *drv_cfg = dev->config;
 
+    uint32_t now = k_cycle_get_32();
+    uint8_t prev = drv_data->ab_state;
     uint8_t val = ec11_get_ab_state(dev);
     int8_t delta;
 
-    switch (val | (drv_data->ab_state << 2)) {
+    switch (val | (prev << 2)) {
     case 0b0010:
     case 0b0100:
     case 0b1101:
@@ -48,9 +103,13 @@ void ec11_handle_edge(const struct device *dev) {
         delta = 1;
         break;
     default:
-        /* No change, or a double jump we cannot resolve (should not happen now
-         * that interrupts are never disabled). Resync state and bail. */
+        /* No change, or a 2-step jump we cannot resolve (a missed edge). Resync
+         * state and bail; trace the jump so edge loss is visible. */
         drv_data->ab_state = val;
+        if (val != prev) {
+            EC11_TRACE(k_cyc_to_us_floor32(now), prev, val, 0, drv_data->accum, drv_data->dir,
+                       drv_data->pulses, EC11_EVT_DROP);
+        }
         return;
     }
 
@@ -60,17 +119,18 @@ void ec11_handle_edge(const struct device *dev) {
      * the switch point alternates +1/-1, so accum oscillates and never reaches
      * the threshold -- the bounce is filtered without dropping any edge. */
     drv_data->accum += delta;
+    int8_t accum_shown __maybe_unused = drv_data->accum;
 
     /* Remember when we last moved in the committed direction. A reverse detent
      * that completes within reverse_guard_us of this is a glitch (a real
      * reversal always has a velocity-through-zero time gap). */
-    uint32_t now = k_cycle_get_32();
     if (drv_data->dir == 0 || delta == drv_data->dir) {
         drv_data->t_codir = now;
     }
 
     const int8_t det = (int8_t)drv_cfg->pulses_per_detent;
     bool detent = false;
+    uint8_t evt __maybe_unused = EC11_EVT_STEP;
 
     if (drv_data->accum >= det || drv_data->accum <= -det) {
         int8_t want = (drv_data->accum >= det) ? 1 : -1; /* direction this detent wants */
@@ -82,6 +142,7 @@ void ec11_handle_edge(const struct device *dev) {
             drv_data->pulses += want;
             drv_data->dir = want;
             detent = true;
+            evt = EC11_EVT_EMIT;
         } else if (drv_cfg->reverse_glitch_as_codir &&
                    k_cyc_to_us_floor32(now - drv_data->t_last_emit) >= drv_cfg->codir_guard_us) {
             /* A glitch this long after the last detent is a genuinely missed
@@ -91,13 +152,18 @@ void ec11_handle_edge(const struct device *dev) {
              * physical detent from emitting twice. */
             drv_data->pulses += drv_data->dir;
             detent = true;
+            evt = EC11_EVT_CODIR;
+        } else {
+            evt = EC11_EVT_DROP; /* glitch dropped (chatter echo, or codir disabled) */
         }
-        /* else: glitch dropped (chatter echo, or codir disabled) */
 
         if (detent) {
             drv_data->t_last_emit = now;
         }
     }
+
+    EC11_TRACE(k_cyc_to_us_floor32(now), prev, val, delta, accum_shown, drv_data->dir,
+               drv_data->pulses, evt);
 
 #ifdef CONFIG_EC11_TRIGGER
     if (detent && drv_data->handler) {
