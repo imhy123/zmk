@@ -25,11 +25,12 @@ struct ec11_config {
      * detent in the committed direction (the glitch was misdecoded
      * same-direction motion); if 0, drop it entirely. Defaults to 0. */
     const uint8_t filter_reverse_as_codir;
-    /* A same-direction (codir) recovery is only emitted if at least this many
-     * microseconds have passed since the last emitted detent. Sooner than that
-     * the glitch is the just-emitted detent's settling chatter, so it is dropped
-     * to keep one physical detent from emitting twice. 0 disables this gate.
-     * Defaults to 3000. */
+    /* Minimum time since the last emitted detent before an *inferred* detent may
+     * fire -- both the same-direction (codir) recovery and the 2-step-jump
+     * compensation below. An inferred emit sooner than this is the just-emitted
+     * detent's settling chatter (or a burst of collapsed reads within one
+     * detent), so it is dropped to keep one physical detent from emitting more
+     * than once. 0 disables this gate. Defaults to 3000. */
     const uint32_t filter_codir_guard_us;
     /* When two edges of a detent collapse into one read (a 2-step jump, both A
      * and B differ), the direction is ambiguous from the states alone. If

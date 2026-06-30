@@ -110,8 +110,15 @@ void ec11_handle_edge(const struct device *dev) {
          * into a single read (this encoder does it at every other detent). The
          * direction is ambiguous from the states alone, but it is two
          * transitions in whatever way we were already turning -- compensate the
-         * otherwise-lost detent using the committed direction. */
-        if (!drv_cfg->filter_jump_compensate || drv_data->dir == 0) {
+         * otherwise-lost detent using the committed direction.
+         *
+         * Gate it by filter_codir_guard_us since the last detent: a jump sooner
+         * than that is boundary chatter (the nRF missed intermediate samples
+         * within one detent and a burst can produce several 2-step reads), not a
+         * new detent -- compensating each would over-count (one detent emitting
+         * several steps), so drop it. */
+        if (!drv_cfg->filter_jump_compensate || drv_data->dir == 0 ||
+            k_cyc_to_us_floor32(now - drv_data->t_last_emit) < drv_cfg->filter_codir_guard_us) {
             drv_data->ab_state = val;
             EC11_TRACE(k_cyc_to_us_floor32(now), prev, val, 0, drv_data->accum, drv_data->dir,
                        drv_data->pulses, EC11_EVT_DROP);
